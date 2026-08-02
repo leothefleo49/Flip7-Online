@@ -3,29 +3,28 @@ import {
   User, Users, Trash2, RotateCcw, Shuffle, Settings, 
   ShieldCheck, Plus, Trophy, X, AlertOctagon, Sparkles,
   ChevronRight, Edit2, Check, Snowflake, Hand, Crown, 
-  AlertTriangle, Maximize, Minimize
+  AlertTriangle, Maximize, Minimize, LogOut, ArrowRight, Gamepad2
 } from 'lucide-react';
 
+// --- FIREBASE CONFIGURATION ---
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
 
-// Gracefully handle Firebase init so the app works on Vercel without crashing
-let app, auth, db, appId;
-const isFirebaseAvailable = typeof __firebase_config !== 'undefined' && typeof __app_id !== 'undefined';
+const firebaseConfig = {
+  apiKey: "AIzaSyCV8cthZmuld7b8wJrO2YSLJlgbosAX968",
+  authDomain: "flip7-online-2d0fc.firebaseapp.com",
+  projectId: "flip7-online-2d0fc",
+  storageBucket: "flip7-online-2d0fc.firebasestorage.app",
+  messagingSenderId: "576916003695",
+  appId: "1:576916003695:web:aa62f61a0b2e145602269a"
+};
 
-if (isFirebaseAvailable) {
-  try {
-    const firebaseConfig = JSON.parse(__firebase_config);
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-    appId = __app_id;
-  } catch (e) {
-    console.warn("Firebase initialization failed, falling back to local mode.");
-  }
-}
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
+// --- GAME CONSTANTS ---
 const DECK = {
   'num_0': 1, 'num_1': 1, 'num_2': 2, 'num_3': 3, 'num_4': 4,
   'num_5': 5, 'num_6': 6, 'num_7': 7, 'num_8': 8, 'num_9': 9,
@@ -41,7 +40,6 @@ const WINNING_SCORE = 200;
 
 function calculatePoints(cardsArray, isBusted = false) {
   if (isBusted) return 0;
-  
   let numSum = 0;
   let plusSum = 0;
   let hasX2 = false;
@@ -73,6 +71,7 @@ const formatCardName = (id) => {
   return id;
 };
 
+// --- POPUP COMPONENT ---
 const GamePopup = ({ popup, onClose }) => {
   useEffect(() => {
     if (!popup) return;
@@ -102,18 +101,11 @@ const GamePopup = ({ popup, onClose }) => {
       desc: `${popup.playerName} collected 7 unique numbers! +15 Pts!`
     }
   };
-
   const config = configs[popup.type];
 
   return (
-    <div 
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm transition-all animate-in fade-in zoom-in duration-200 cursor-pointer"
-    >
-      <div 
-        onClick={(e) => e.stopPropagation()} 
-        className={`${config.bg} border-4 ${config.border} p-8 rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.5)] flex flex-col items-center text-center max-w-sm w-full transform transition-all`}
-      >
+    <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm transition-all animate-in fade-in zoom-in duration-200 cursor-pointer">
+      <div onClick={(e) => e.stopPropagation()} className={`${config.bg} border-4 ${config.border} p-8 rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.5)] flex flex-col items-center text-center max-w-sm w-full transform transition-all`}>
         {config.icon}
         <h2 className="text-4xl md:text-5xl font-black text-white tracking-widest uppercase shadow-black/50 drop-shadow-lg mb-2">{config.title}</h2>
         <p className="text-white/95 font-bold text-lg md:text-xl">{config.desc}</p>
@@ -124,53 +116,55 @@ const GamePopup = ({ popup, onClose }) => {
 };
 
 export default function OnlineFlip7() {
+  // --- USER & LOBBY STATE ---
   const [user, setUser] = useState(null);
+  const [myProfile, setMyProfile] = useState(() => {
+    const saved = localStorage.getItem('flip7_profile');
+    return saved ? JSON.parse(saved) : { name: `Player_${Math.floor(Math.random() * 1000)}` };
+  });
+  const [roomId, setRoomId] = useState(null);
+  const [joinCode, setJoinCode] = useState('');
+  const [savedRooms, setSavedRooms] = useState(() => {
+    const saved = localStorage.getItem('flip7_rooms');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [lobbyError, setLobbyError] = useState('');
+  
   const [isFullscreen, setIsFullscreen] = useState(false);
-  
-  const defaultState = {
-    players: [
-      { id: '1', name: 'Player 1', cards: [], score: 0, busted: false, standing: false, frozen: false, color: 'blue' },
-      { id: '2', name: 'Player 2', cards: [], score: 0, busted: false, standing: false, frozen: false, color: 'purple' }
-    ],
-    discardPile: [],
-    round: 1,
-    activeTab: '1',
-    eventTrigger: null
-  };
-
-  const [gameState, setGameState] = useState(defaultState);
-  
   const [showSettings, setShowSettings] = useState(false);
   const [showEndRound, setShowEndRound] = useState(false);
   const [editingPlayerId, setEditingPlayerId] = useState(null);
   const [editName, setEditName] = useState('');
-  const [settings, setSettings] = useState({
-    trackAllPlayers: true,
-    trackDiscard: true,
-    autoSwitch: true
-  });
+  
+  const [settings, setSettings] = useState({ trackAllPlayers: true, trackDiscard: true, autoSwitch: true });
 
+  // --- GAME STATE ---
+  const defaultState = {
+    host: '',
+    players: [],
+    discardPile: [],
+    round: 1,
+    activeTab: 'discard',
+    eventTrigger: null
+  };
+  const [gameState, setGameState] = useState(defaultState);
+
+  // --- AUTH INIT ---
   useEffect(() => {
-    if (!isFirebaseAvailable || !auth) return;
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (e) {
-        console.error("Auth Error", e);
-      }
-    };
-    initAuth();
+    signInAnonymously(auth).catch(e => console.error("Auth Error", e));
     const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
 
+  // --- PROFILE SAVE ---
   useEffect(() => {
-    if (!isFirebaseAvailable || !db || !user) return;
-    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'flip7_gamestate');
+    localStorage.setItem('flip7_profile', JSON.stringify(myProfile));
+  }, [myProfile]);
+
+  // --- FIREBASE SYNC ---
+  useEffect(() => {
+    if (!roomId || !user) return;
+    const docRef = doc(db, 'rooms', roomId);
     
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -180,25 +174,76 @@ export default function OnlineFlip7() {
            ...data,
            eventTrigger: data.eventTrigger?.id !== prev.eventTrigger?.id ? data.eventTrigger : prev.eventTrigger
         }));
+      } else {
+        setRoomId(null);
+        setLobbyError("Room no longer exists.");
       }
-    }, (error) => {
-      console.error("Firebase Sync Error:", error);
     });
-    
     return () => unsubscribe();
-  }, [user]);
+  }, [roomId, user]);
 
+  // --- LOBBY ACTIONS ---
+  const generateRoomCode = () => {
+    return Math.random().toString(36).substring(2, 6).toUpperCase();
+  };
+
+  const saveRoomToHistory = (code, hostName) => {
+    const newRooms = [{ id: code, name: `${hostName}'s Room`, date: Date.now() }, ...savedRooms.filter(r => r.id !== code)].slice(0, 5);
+    setSavedRooms(newRooms);
+    localStorage.setItem('flip7_rooms', JSON.stringify(newRooms));
+  };
+
+  const handleHostGame = async () => {
+    if (!user) return;
+    const newRoomId = generateRoomCode();
+    const colors = ['emerald', 'amber', 'pink', 'cyan', 'indigo', 'rose', 'orange'];
+    const myPlayer = { id: user.uid, name: myProfile.name, cards: [], score: 0, busted: false, standing: false, frozen: false, color: colors[0] };
+    
+    const initialState = {
+      ...defaultState,
+      host: myProfile.name,
+      players: [myPlayer],
+      activeTab: user.uid
+    };
+    
+    await setDoc(doc(db, 'rooms', newRoomId), initialState);
+    saveRoomToHistory(newRoomId, myProfile.name);
+    setRoomId(newRoomId);
+  };
+
+  const handleJoinGame = async (codeToJoin) => {
+    if (!user || !codeToJoin) return;
+    const code = codeToJoin.toUpperCase();
+    setLobbyError('');
+    
+    const docRef = doc(db, 'rooms', code);
+    const docSnap = await getDoc(docRef);
+    
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      let updatedPlayers = [...data.players];
+      
+      // Add me if I'm not in the room yet
+      if (!updatedPlayers.find(p => p.id === user.uid)) {
+        const colors = ['emerald', 'amber', 'pink', 'cyan', 'indigo', 'rose', 'orange'];
+        const randomColor = colors[updatedPlayers.length % colors.length];
+        updatedPlayers.push({ id: user.uid, name: myProfile.name, cards: [], score: 0, busted: false, standing: false, frozen: false, color: randomColor });
+        await setDoc(docRef, { players: updatedPlayers }, { merge: true });
+      }
+      
+      saveRoomToHistory(code, data.host || "Friend");
+      setRoomId(code);
+    } else {
+      setLobbyError("Room not found. Check the code.");
+    }
+  };
+
+  // --- GAMEPLAY ACTIONS ---
   const updateGame = async (updates) => {
     const newState = { ...gameState, ...updates };
     setGameState(newState); 
-    
-    if (isFirebaseAvailable && db && user) {
-      try {
-        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'flip7_gamestate');
-        await setDoc(docRef, newState, { merge: true });
-      } catch (e) {
-        console.error("Failed to sync state to cloud", e);
-      }
+    if (roomId && user) {
+      await setDoc(doc(db, 'rooms', roomId), newState, { merge: true });
     }
   };
 
@@ -206,9 +251,7 @@ export default function OnlineFlip7() {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(e => console.error(e));
     } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen().then(() => setIsFullscreen(false)).catch(e => console.error(e));
-      }
+      if (document.exitFullscreen) document.exitFullscreen().then(() => setIsFullscreen(false)).catch(e => console.error(e));
     }
   };
 
@@ -241,12 +284,9 @@ export default function OnlineFlip7() {
     
     let nextIndex = (currentIndex + 1) % newPlayersState.length;
     let loopCount = 0;
-    
     while (loopCount < newPlayersState.length) {
       const nextP = newPlayersState[nextIndex];
-      if (!nextP.busted && !nextP.standing && !nextP.frozen) {
-        return nextP.id;
-      }
+      if (!nextP.busted && !nextP.standing && !nextP.frozen) return nextP.id;
       nextIndex = (nextIndex + 1) % newPlayersState.length;
       loopCount++;
     }
@@ -255,12 +295,10 @@ export default function OnlineFlip7() {
 
   const handleAddCard = (id) => {
     if (getRemaining(id) <= 0) return;
-
     if (isDiscardTab) {
       updateGame({ discardPile: [...discardPile, id] });
       return;
     }
-
     if (!activePlayer || activePlayer.busted || activePlayer.standing || activePlayer.frozen) return;
 
     let updatedPlayers = [...players];
@@ -285,27 +323,18 @@ export default function OnlineFlip7() {
       const newCards = [...activePlayer.cards, id];
       updatedPlayers = updatedPlayers.map(p => p.id === activePlayer.id ? { ...p, cards: newCards } : p);
       if (id.startsWith('num_')) {
-        const uniqueNumsCount = new Set(newCards.filter(c => c.startsWith('num_'))).size;
-        if (uniqueNumsCount === 7) newEvent = { id: Date.now(), type: 'FLIP7', playerName: activePlayer.name };
+        if (new Set(newCards.filter(c => c.startsWith('num_'))).size === 7) newEvent = { id: Date.now(), type: 'FLIP7', playerName: activePlayer.name };
       }
     }
 
     nextTab = advanceTurn(updatedPlayers);
-    
-    updateGame({
-      players: updatedPlayers,
-      discardPile: newDiscard,
-      activeTab: nextTab,
-      eventTrigger: newEvent || eventTrigger
-    });
+    updateGame({ players: updatedPlayers, discardPile: newDiscard, activeTab: nextTab, eventTrigger: newEvent || eventTrigger });
   };
 
   const togglePlayerState = (playerId, field) => {
     const updatedPlayers = players.map(p => p.id === playerId ? { ...p, [field]: !p[field] } : p);
     let nextTab = activeTab;
-    if (playerId === activeTab && updatedPlayers.find(p => p.id === playerId)[field]) {
-       nextTab = advanceTurn(updatedPlayers);
-    }
+    if (playerId === activeTab && updatedPlayers.find(p => p.id === playerId)[field]) nextTab = advanceTurn(updatedPlayers);
     updateGame({ players: updatedPlayers, activeTab: nextTab });
   };
 
@@ -327,12 +356,12 @@ export default function OnlineFlip7() {
     }
   };
 
-  const handleAddPlayer = () => {
+  const handleAddLocalPlayer = () => {
     const newId = Date.now().toString();
     const colors = ['emerald', 'amber', 'pink', 'cyan', 'indigo', 'rose', 'orange'];
     const randomColor = colors[players.length % colors.length];
     updateGame({
-      players: [...players, { id: newId, name: `Player ${players.length + 1}`, cards: [], score: 0, busted: false, standing: false, frozen: false, color: randomColor }]
+      players: [...players, { id: newId, name: `Guest ${players.length + 1}`, cards: [], score: 0, busted: false, standing: false, frozen: false, color: randomColor }]
     });
   };
 
@@ -343,7 +372,6 @@ export default function OnlineFlip7() {
       allCardsToDiscard = [...allCardsToDiscard, ...p.cards];
       return { ...p, score: p.score + roundPts, cards: [], busted: false, standing: false, frozen: false };
     });
-    
     updateGame({
       players: updatedPlayers,
       discardPile: shuffleDeck ? [] : [...discardPile, ...allCardsToDiscard],
@@ -387,13 +415,89 @@ export default function OnlineFlip7() {
     return (
       <div onClick={onRemove} className={`rounded-lg cursor-pointer flex flex-col items-center justify-center font-bold text-sm md:text-base lg:text-lg shadow-md border hover:border-red-400 transition-all w-12 h-16 md:w-14 md:h-20 group relative overflow-hidden flex-shrink-0 ${color} ${isBustCard ? 'border-red-500 animate-pulse' : 'border-white/10'}`}>
         <span>{text}</span>
-        <div className="absolute inset-0 bg-red-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-          <Trash2 size={18} />
-        </div>
+        <div className="absolute inset-0 bg-red-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={18} /></div>
       </div>
     );
   };
 
+  // --- RENDER LOBBY ---
+  if (!roomId) {
+    return (
+      <div className="min-h-[100dvh] w-full bg-slate-950 text-slate-200 font-sans flex items-center justify-center p-4 selection:bg-blue-500/30 relative overflow-hidden">
+        {/* Background Glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg h-96 bg-blue-600/20 blur-[100px] rounded-full pointer-events-none"></div>
+        
+        <div className="w-full max-w-md bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl relative z-10 flex flex-col gap-6">
+           <div className="text-center">
+             <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-blue-900/50 mb-4">
+                <Gamepad2 size={32} className="text-white"/>
+             </div>
+             <h1 className="text-3xl font-black bg-gradient-to-r from-blue-400 via-purple-400 to-amber-400 bg-clip-text text-transparent mb-1">FLIP 7 ONLINE</h1>
+             <p className="text-slate-400 text-xs font-bold tracking-widest uppercase">Multiplayer Engine</p>
+           </div>
+
+           <div className="space-y-4 bg-slate-950/50 p-4 rounded-2xl border border-slate-800/50 shadow-inner">
+             <div>
+               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 block">Your Display Name</label>
+               <div className="relative">
+                 <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                 <input 
+                   type="text" maxLength={12}
+                   value={myProfile.name} onChange={(e) => setMyProfile({ ...myProfile, name: e.target.value })}
+                   className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white font-bold focus:outline-none focus:border-blue-500 transition-colors"
+                 />
+               </div>
+             </div>
+             
+             <div className="flex gap-2 pt-2">
+               <button onClick={handleHostGame} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-blue-900/20 active:scale-95 flex items-center justify-center gap-2">
+                  <Plus size={18}/> Host Game
+               </button>
+             </div>
+           </div>
+
+           <div className="space-y-4">
+             <div className="flex items-center gap-2">
+                <div className="flex-1 h-px bg-slate-800"></div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Or Join Friends</span>
+                <div className="flex-1 h-px bg-slate-800"></div>
+             </div>
+
+             <div className="flex gap-2">
+               <input 
+                 type="text" placeholder="ROOM CODE" maxLength={4}
+                 value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                 className="flex-1 bg-slate-900/80 border border-slate-700 rounded-xl px-4 text-center text-xl font-black tracking-widest text-white focus:outline-none focus:border-purple-500 uppercase placeholder:text-slate-700"
+               />
+               <button onClick={() => handleJoinGame(joinCode)} disabled={joinCode.length < 4} className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:hover:bg-purple-600 text-white px-6 rounded-xl font-bold transition-all shadow-lg shadow-purple-900/20 active:scale-95">
+                 Join
+               </button>
+             </div>
+             {lobbyError && <p className="text-rose-500 text-xs font-bold text-center animate-pulse">{lobbyError}</p>}
+           </div>
+
+           {savedRooms.length > 0 && (
+             <div className="mt-2">
+                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Users size={12}/> Recent Friends</h3>
+                <div className="flex flex-col gap-2 max-h-32 overflow-y-auto custom-scrollbar pr-1">
+                  {savedRooms.map(room => (
+                    <button key={room.id} onClick={() => handleJoinGame(room.id)} className="w-full bg-slate-800/50 hover:bg-slate-700/80 border border-slate-700/50 rounded-lg p-2.5 flex items-center justify-between transition-colors group">
+                       <span className="text-sm font-bold text-slate-300 group-hover:text-white transition-colors">{room.name}</span>
+                       <div className="flex items-center gap-3">
+                          <span className="text-xs font-mono text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">{room.id}</span>
+                          <ArrowRight size={14} className="text-slate-600 group-hover:text-blue-400 transition-colors"/>
+                       </div>
+                    </button>
+                  ))}
+                </div>
+             </div>
+           )}
+        </div>
+      </div>
+    );
+  }
+
+  // --- RENDER GAME BOARD ---
   return (
     <div className="h-[100dvh] w-full bg-slate-950 text-slate-200 font-sans flex flex-col overflow-hidden selection:bg-blue-500/30">
       
@@ -401,11 +505,14 @@ export default function OnlineFlip7() {
 
       {/* --- TOP HEADER --- */}
       <div className="h-14 md:h-16 px-3 md:px-6 flex justify-between items-center bg-slate-900/80 border-b border-slate-800 flex-shrink-0 backdrop-blur z-20">
-        <div className="flex items-center gap-2 md:gap-4">
+        <div className="flex items-center gap-3 md:gap-4">
+          <button onClick={() => setRoomId(null)} className="p-1.5 md:p-2 bg-slate-800 hover:bg-rose-900/80 text-slate-400 hover:text-rose-400 rounded-lg transition-colors" title="Leave Room">
+             <LogOut size={16} />
+          </button>
+          <div className="h-6 w-px bg-slate-700"></div>
           <div>
-            <h1 className="text-xl md:text-2xl font-black bg-gradient-to-r from-blue-400 via-purple-400 to-amber-400 bg-clip-text text-transparent leading-none flex items-center gap-2">
-              FLIP 7 <span className="text-slate-500 text-xs md:text-sm font-medium tracking-widest uppercase hidden sm:inline">Online Engine</span>
-              {isFirebaseAvailable && <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] ml-1" title="Online Sync Active"></div>}
+            <h1 className="text-xl md:text-2xl font-black text-white leading-none flex items-center gap-2">
+              ROOM: <span className="text-blue-400 tracking-widest">{roomId}</span>
             </h1>
             <p className="text-slate-400 text-[9px] md:text-[10px] mt-1 font-bold tracking-wider uppercase">
               ROUND {round} <span className="mx-2 text-slate-700">|</span> {totalRemaining} CARDS
@@ -453,7 +560,7 @@ export default function OnlineFlip7() {
       {/* --- MAIN 3-COLUMN LAYOUT --- */}
       <div className="flex-1 flex flex-col lg:flex-row min-h-0 w-full mx-auto p-2 md:p-3 lg:p-4 gap-2 md:gap-3 lg:gap-4 overflow-hidden relative">
         
-        {/* COLUMN 1: Keyboard Only (No Stats) */}
+        {/* COLUMN 1: Keyboard */}
         <div className="w-full lg:w-4/12 xl:w-3/12 flex flex-col min-h-0 gap-2 md:gap-3 order-2 lg:order-1">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-xl flex-1 overflow-y-auto custom-scrollbar flex flex-col relative">
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 flex justify-between items-center flex-shrink-0 sticky top-0 bg-slate-900 pb-2 z-10">
@@ -477,12 +584,13 @@ export default function OnlineFlip7() {
         {/* COLUMN 2: Active Center Stage */}
         <div className="w-full lg:w-5/12 xl:w-6/12 flex flex-col min-h-0 order-1 lg:order-2">
           
-          {/* Top Leaderboard / Tabs (Horizontal scroll) */}
+          {/* Top Leaderboard / Tabs */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-1.5 shadow-xl overflow-x-auto custom-scrollbar mb-2 md:mb-3 flex-shrink-0">
             <div className="flex gap-1.5 min-w-max">
               {players.map((p) => {
                 const pRoundPts = calculatePoints(p.cards, p.busted);
                 const isWinning = p.score + pRoundPts >= WINNING_SCORE;
+                const isMe = p.id === user?.uid;
 
                 return (
                   <button 
@@ -491,7 +599,7 @@ export default function OnlineFlip7() {
                   >
                     {isWinning && <div className="absolute top-0 right-0 p-1 bg-amber-400 text-amber-900 rounded-bl-lg"><Crown size={10} /></div>}
                     <div className="flex items-center justify-between w-full mb-0.5">
-                      <span className="truncate pr-3 text-xs">{p.name}</span>
+                      <span className={`truncate pr-3 text-xs ${isMe ? 'underline decoration-2 underline-offset-2' : ''}`}>{p.name}</span>
                       {activeTab === p.id && <Edit2 size={10} className="opacity-50 hover:opacity-100 absolute right-2 top-2.5 z-10" onClick={(e) => { e.stopPropagation(); setEditName(p.name); setEditingPlayerId(p.id); }} />}
                     </div>
                     <div className="text-[10px] font-normal opacity-90 flex gap-1 items-center">
@@ -507,8 +615,8 @@ export default function OnlineFlip7() {
               <button onClick={() => updateGame({ activeTab: 'discard' })} className={`px-3 py-2 rounded-lg text-xs font-bold flex flex-col items-center justify-center min-w-[90px] transition-all ${activeTab === 'discard' ? 'bg-slate-600 text-white shadow-lg' : 'bg-slate-800 text-slate-500 hover:bg-slate-700'}`}>
                  <Trash2 size={14} className="mb-0.5" /> Discard
               </button>
-              <button onClick={handleAddPlayer} className="px-3 py-2 rounded-lg text-xs font-bold flex flex-col items-center justify-center min-w-[60px] bg-slate-900 border border-slate-700 border-dashed text-slate-400 hover:bg-slate-800 transition-all">
-                 <Plus size={16} /> Add
+              <button onClick={handleAddLocalPlayer} className="px-3 py-2 rounded-lg text-xs font-bold flex flex-col items-center justify-center min-w-[60px] bg-slate-900 border border-slate-700 border-dashed text-slate-400 hover:bg-slate-800 transition-all">
+                 <Plus size={16} /> Guest
               </button>
             </div>
           </div>
@@ -522,6 +630,7 @@ export default function OnlineFlip7() {
                 />
                 <button onClick={() => { updateGame({ players: players.map(p => p.id === editingPlayerId ? { ...p, name: editName || p.name } : p) }); setEditingPlayerId(null); }} className="bg-blue-600 p-1.5 rounded text-white"><Check size={14}/></button>
                 <button onClick={() => setEditingPlayerId(null)} className="bg-slate-700 p-1.5 rounded text-white"><X size={14}/></button>
+                <button onClick={() => { updateGame({ players: players.filter(p => p.id !== editingPlayerId) }); setEditingPlayerId(null); }} className="bg-rose-900/50 text-rose-400 p-1.5 rounded ml-auto hover:bg-rose-900"><Trash2 size={14}/></button>
              </div>
           )}
 
