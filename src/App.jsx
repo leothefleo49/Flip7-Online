@@ -151,7 +151,10 @@ export default function OnlineFlip7() {
 
   // --- AUTH INIT ---
   useEffect(() => {
-    signInAnonymously(auth).catch(e => console.error("Auth Error", e));
+    signInAnonymously(auth).catch(e => {
+      console.error("Auth Error", e);
+      setLobbyError("Server Auth Error: Please enable 'Anonymous' Sign-in in Firebase Authentication.");
+    });
     const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
@@ -194,47 +197,67 @@ export default function OnlineFlip7() {
   };
 
   const handleHostGame = async () => {
-    if (!user) return;
-    const newRoomId = generateRoomCode();
-    const colors = ['emerald', 'amber', 'pink', 'cyan', 'indigo', 'rose', 'orange'];
-    const myPlayer = { id: user.uid, name: myProfile.name, cards: [], score: 0, busted: false, standing: false, frozen: false, color: colors[0] };
+    if (!user) {
+      setLobbyError("Connecting to server... If stuck, ensure Anonymous Auth is enabled in Firebase.");
+      return;
+    }
     
-    const initialState = {
-      ...defaultState,
-      host: myProfile.name,
-      players: [myPlayer],
-      activeTab: user.uid
-    };
-    
-    await setDoc(doc(db, 'rooms', newRoomId), initialState);
-    saveRoomToHistory(newRoomId, myProfile.name);
-    setRoomId(newRoomId);
+    try {
+      const newRoomId = generateRoomCode();
+      const colors = ['emerald', 'amber', 'pink', 'cyan', 'indigo', 'rose', 'orange'];
+      const myPlayer = { id: user.uid, name: myProfile.name, cards: [], score: 0, busted: false, standing: false, frozen: false, color: colors[0] };
+      
+      const initialState = {
+        ...defaultState,
+        host: myProfile.name,
+        players: [myPlayer],
+        activeTab: user.uid
+      };
+      
+      await setDoc(doc(db, 'rooms', newRoomId), initialState);
+      saveRoomToHistory(newRoomId, myProfile.name);
+      setRoomId(newRoomId);
+    } catch (error) {
+      console.error("Database Error:", error);
+      setLobbyError("Database Error: Did you create the Firestore Database in 'Test Mode'?");
+    }
   };
 
   const handleJoinGame = async (codeToJoin) => {
-    if (!user || !codeToJoin) return;
+    if (!user) {
+      setLobbyError("Connecting to server... If stuck, ensure Anonymous Auth is enabled in Firebase.");
+      return;
+    }
+    if (!codeToJoin) return;
+    
     const code = codeToJoin.toUpperCase();
-    setLobbyError('');
+    setLobbyError('Joining...');
     
-    const docRef = doc(db, 'rooms', code);
-    const docSnap = await getDoc(docRef);
-    
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      let updatedPlayers = [...data.players];
+    try {
+      const docRef = doc(db, 'rooms', code);
+      const docSnap = await getDoc(docRef);
       
-      // Add me if I'm not in the room yet
-      if (!updatedPlayers.find(p => p.id === user.uid)) {
-        const colors = ['emerald', 'amber', 'pink', 'cyan', 'indigo', 'rose', 'orange'];
-        const randomColor = colors[updatedPlayers.length % colors.length];
-        updatedPlayers.push({ id: user.uid, name: myProfile.name, cards: [], score: 0, busted: false, standing: false, frozen: false, color: randomColor });
-        await setDoc(docRef, { players: updatedPlayers }, { merge: true });
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        let updatedPlayers = [...data.players];
+        
+        // Add me if I'm not in the room yet
+        if (!updatedPlayers.find(p => p.id === user.uid)) {
+          const colors = ['emerald', 'amber', 'pink', 'cyan', 'indigo', 'rose', 'orange'];
+          const randomColor = colors[updatedPlayers.length % colors.length];
+          updatedPlayers.push({ id: user.uid, name: myProfile.name, cards: [], score: 0, busted: false, standing: false, frozen: false, color: randomColor });
+          await setDoc(docRef, { players: updatedPlayers }, { merge: true });
+        }
+        
+        saveRoomToHistory(code, data.host || "Friend");
+        setLobbyError('');
+        setRoomId(code);
+      } else {
+        setLobbyError("Room not found. Check the code.");
       }
-      
-      saveRoomToHistory(code, data.host || "Friend");
-      setRoomId(code);
-    } else {
-      setLobbyError("Room not found. Check the code.");
+    } catch (error) {
+      console.error("Database Error:", error);
+      setLobbyError("Database Error: Cannot read from Firestore.");
     }
   };
 
