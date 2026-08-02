@@ -420,10 +420,10 @@ export default function OnlineFlip7() {
       <button 
         onClick={() => handleAddCard(id)} 
         disabled={disabled}
-        className={`relative p-1 md:p-2 rounded-xl border flex flex-col items-center justify-center font-bold transition-all h-12 md:h-14 w-full ${colorClasses} ${disabled ? 'opacity-30 cursor-not-allowed' : 'active:scale-95 hover:shadow-lg'}`}
+        className={`relative p-1 md:p-2 rounded-xl border flex flex-col items-center justify-center font-bold transition-all min-h-[3.25rem] md:min-h-[3.5rem] w-full ${colorClasses} ${disabled ? 'opacity-30 cursor-not-allowed' : 'active:scale-95 hover:shadow-lg'}`}
       >
-        <span className="text-base md:text-lg lg:text-xl leading-none mb-1">{text}</span>
-        <span className="text-[9px] md:text-[10px] font-normal opacity-70 absolute bottom-1">{count} left</span>
+        <span className="text-xs sm:text-sm md:text-base leading-tight text-center px-0.5 whitespace-normal w-full">{text}</span>
+        <span className="text-[9px] md:text-[10px] font-normal opacity-70 mt-0.5">{count} left</span>
       </button>
     );
   };
@@ -755,13 +755,29 @@ export default function OnlineFlip7() {
                         </div>
                       </div>
 
+                      {/* Mini Cards */}
                       <div className="flex flex-wrap gap-1 mt-1">
                          {p.cards.length === 0 ? <span className="text-[9px] text-slate-600 uppercase font-bold tracking-widest">No Cards</span> : null}
-                         {p.cards.map((c, i) => (
-                           <div key={i} className={`w-4 h-5 rounded-sm border ${c.startsWith('num_') ? 'bg-blue-900/50 border-blue-700/50' : c.startsWith('mod_') ? 'bg-purple-900/50 border-purple-700/50' : 'bg-amber-900/50 border-amber-700/50'}`}></div>
-                         ))}
+                         {p.cards.map((c, i) => {
+                           let color = 'bg-slate-700 border-white/10 text-white';
+                           let shortName = c.replace('num_', '').replace('mod_', '').replace('act_', '');
+                           if (shortName === 'freeze') shortName = 'Frz';
+                           if (shortName === 'flip3') shortName = 'Flp';
+                           if (shortName === '2nd') shortName = '2nd';
+                           
+                           if (c.startsWith('num_')) color = 'bg-blue-900/50 border-blue-700/50 text-blue-200';
+                           if (c.startsWith('mod_')) color = 'bg-purple-900/50 border-purple-700/50 text-purple-200';
+                           if (c.startsWith('act_')) color = 'bg-amber-900/50 border-amber-700/50 text-amber-200';
+                           
+                           return (
+                             <div key={i} className={`w-6 h-7 rounded border flex items-center justify-center text-[9px] font-bold shadow-sm ${color}`}>
+                               {shortName}
+                             </div>
+                           );
+                         })}
                       </div>
                       
+                      {/* Status row */}
                       <div className="flex gap-1 mt-auto pt-1">
                          {p.busted && <span className="text-[8px] bg-rose-900/50 text-rose-400 px-1.5 py-0.5 rounded border border-rose-800 uppercase font-bold">Busted</span>}
                          {p.standing && <span className="text-[8px] bg-amber-900/50 text-amber-400 px-1.5 py-0.5 rounded border border-amber-800 uppercase font-bold">Stand</span>}
