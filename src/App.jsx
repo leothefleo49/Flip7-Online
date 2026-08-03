@@ -71,6 +71,29 @@ const formatCardName = (id) => {
   return id;
 };
 
+const customScrollbarCSS = `
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.4); 
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(51, 65, 85, 0.8); 
+    border-radius: 10px;
+    border: 2px solid rgba(15, 23, 42, 0.4);
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(59, 130, 246, 0.8);
+  }
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(51, 65, 85, 0.8) rgba(15, 23, 42, 0.4);
+  }
+`;
+
 // --- POPUP COMPONENT ---
 const GamePopup = ({ popup, onClose }) => {
   useEffect(() => {
@@ -447,6 +470,7 @@ export default function OnlineFlip7() {
   if (!roomId) {
     return (
       <div className="min-h-[100dvh] w-full bg-slate-950 text-slate-200 font-sans flex items-center justify-center p-4 selection:bg-blue-500/30 relative overflow-hidden">
+        <style>{customScrollbarCSS}</style>
         {/* Background Glow */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg h-96 bg-blue-600/20 blur-[100px] rounded-full pointer-events-none"></div>
         
@@ -523,7 +547,7 @@ export default function OnlineFlip7() {
   // --- RENDER GAME BOARD ---
   return (
     <div className="h-[100dvh] w-full bg-slate-950 text-slate-200 font-sans flex flex-col overflow-hidden selection:bg-blue-500/30">
-      
+      <style>{customScrollbarCSS}</style>
       <GamePopup popup={eventTrigger} onClose={() => updateGame({ eventTrigger: null })} />
 
       {/* --- TOP HEADER --- */}
